@@ -561,8 +561,14 @@ code {
   border: 0;
   background: transparent;
   color: var(--ink);
+  cursor: grab;
   padding: 0;
   text-align: left;
+  touch-action: none;
+}
+
+.card-body:active {
+  cursor: grabbing;
 }
 
 .card-body strong,

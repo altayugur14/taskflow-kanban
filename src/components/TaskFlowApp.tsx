@@ -1072,7 +1072,13 @@ function SortableCard({
         <span />
         <span />
       </button>
-      <button className="card-body" type="button" onClick={() => onEditCard(card)}>
+      <button
+        className="card-body"
+        type="button"
+        onClick={() => onEditCard(card)}
+        {...attributes}
+        {...listeners}
+      >
         <strong>{card.title}</strong>
         {card.description ? <p>{card.description}</p> : null}
       </button>
