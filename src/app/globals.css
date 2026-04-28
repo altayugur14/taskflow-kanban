@@ -467,15 +467,42 @@ code {
   box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.16);
 }
 
+.kanban-column.is-dragging {
+  opacity: 0.55;
+}
+
+.kanban-column.column-preview {
+  width: 320px;
+  max-height: 360px;
+  box-shadow: var(--shadow);
+}
+
 .column-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   border-bottom: 1px solid #cfd8e8;
   border-radius: 8px 8px 0 0;
   background: var(--accent-wash);
   padding: 14px;
+}
+
+.column-drag-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(146, 64, 14, 0.16);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--accent-strong);
+  cursor: grab;
+  touch-action: none;
+}
+
+.column-drag-button:active {
+  cursor: grabbing;
 }
 
 .column-header h2 {
@@ -571,6 +598,7 @@ code {
 }
 
 .label-pill,
+.responsible-pill,
 .due-pill {
   border-radius: 999px;
   padding: 3px 8px;
@@ -581,6 +609,11 @@ code {
 .label-pill {
   background: var(--accent-soft);
   color: var(--accent-strong);
+}
+
+.responsible-pill {
+  background: #edf2f7;
+  color: #475569;
 }
 
 .due-pill {
@@ -636,8 +669,61 @@ code {
 
 .modal-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+}
+
+.activity-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+  padding: 14px;
+}
+
+.activity-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-strong);
+}
+
+.activity-heading h2 {
+  margin: 0;
+  font-size: 0.96rem;
+}
+
+.activity-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px 10px;
+}
+
+.activity-list strong,
+.activity-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-list span,
+.activity-list time {
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .field-hint,
@@ -739,5 +825,10 @@ code {
 
   .modal-actions button {
     width: 100%;
+  }
+
+  .activity-list li {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }

@@ -25,9 +25,22 @@ create table if not exists public.cards (
   description text not null default '',
   label text not null default '',
   due_date date,
+  responsible text not null default '',
   position double precision not null default 1000,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists public.card_activity (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid not null references public.boards(id) on delete cascade,
+  card_id uuid not null references public.cards(id) on delete cascade,
+  card_title text not null,
+  from_column_id uuid references public.columns(id) on delete set null,
+  from_column_title text,
+  to_column_id uuid not null references public.columns(id) on delete cascade,
+  to_column_title text not null,
+  created_at timestamptz not null default now()
 );
 
 alter table public.columns
@@ -42,12 +55,16 @@ alter table public.cards
 alter table public.cards
   add column if not exists due_date date;
 
+alter table public.cards
+  add column if not exists responsible text not null default '';
+
 create index if not exists boards_owner_id_idx on public.boards(owner_id);
 create index if not exists columns_board_id_position_idx on public.columns(board_id, position);
 create index if not exists cards_board_column_position_idx on public.cards(board_id, column_id, position);
+create index if not exists card_activity_board_created_idx on public.card_activity(board_id, created_at desc);
 
 grant usage on schema public to anon, authenticated;
-grant all on public.boards, public.columns, public.cards to authenticated;
+grant all on public.boards, public.columns, public.cards, public.card_activity to authenticated;
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -100,6 +117,7 @@ for each row execute function public.ensure_card_column_matches_board();
 alter table public.boards enable row level security;
 alter table public.columns enable row level security;
 alter table public.cards enable row level security;
+alter table public.card_activity enable row level security;
 
 drop policy if exists "Users can read their own boards" on public.boards;
 create policy "Users can read their own boards"
@@ -235,5 +253,42 @@ using (
     from public.boards b
     where b.id = cards.board_id
       and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can read activity on owned boards" on public.card_activity;
+create policy "Users can read activity on owned boards"
+on public.card_activity for select
+using (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = card_activity.board_id
+      and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can create activity on owned boards" on public.card_activity;
+create policy "Users can create activity on owned boards"
+on public.card_activity for insert
+with check (
+  exists (
+    select 1
+    from public.boards b
+    join public.cards card on card.board_id = b.id
+    join public.columns target_column on target_column.board_id = b.id
+    where b.id = card_activity.board_id
+      and card.id = card_activity.card_id
+      and target_column.id = card_activity.to_column_id
+      and b.owner_id = auth.uid()
+      and (
+        card_activity.from_column_id is null
+        or exists (
+          select 1
+          from public.columns source_column
+          where source_column.id = card_activity.from_column_id
+            and source_column.board_id = b.id
+        )
+      )
   )
 );
