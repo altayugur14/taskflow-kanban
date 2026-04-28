@@ -9,11 +9,11 @@ import {
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
-  useDroppable,
   useSensor,
   useSensors
 } from "@dnd-kit/core";
 import {
+  horizontalListSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
@@ -25,6 +25,8 @@ import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
+  Clock3,
+  GripVertical,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -41,9 +43,11 @@ import {
   sortByPosition
 } from "@/lib/positions";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
-import type { Board, Card, Column } from "@/lib/types";
+import type { ActivityLog, Board, Card, Column } from "@/lib/types";
 
 type AuthMode = "signin" | "signup";
+
+const COLUMN_DRAG_PREFIX = "column:";
 
 type PersistedMove = {
   cardId: string;
@@ -65,7 +69,9 @@ export function TaskFlowApp() {
   const [activeBoard, setActiveBoard] = useState<Board | null>(null);
   const [columns, setColumns] = useState<Column[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
+  const [activity, setActivity] = useState<ActivityLog[]>([]);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
 
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [loadingBoard, setLoadingBoard] = useState(false);
@@ -81,6 +87,7 @@ export function TaskFlowApp() {
   const [editDescription, setEditDescription] = useState("");
   const [editLabel, setEditLabel] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
+  const [editResponsible, setEditResponsible] = useState("");
   const [editDueDateError, setEditDueDateError] = useState("");
 
   const sortedBoards = useMemo(
@@ -88,9 +95,27 @@ export function TaskFlowApp() {
     [boards]
   );
   const sortedColumns = useMemo(() => sortByPosition(columns), [columns]);
+  const cardsByColumn = useMemo(() => {
+    const nextCardsByColumn = new Map<string, Card[]>();
+    for (const column of columns) {
+      nextCardsByColumn.set(column.id, []);
+    }
+
+    for (const card of sortByPosition(cards)) {
+      const columnCards = nextCardsByColumn.get(card.column_id) ?? [];
+      columnCards.push(card);
+      nextCardsByColumn.set(card.column_id, columnCards);
+    }
+
+    return nextCardsByColumn;
+  }, [cards, columns]);
   const activeCard = useMemo(
     () => cards.find((card) => card.id === activeCardId) ?? null,
     [activeCardId, cards]
+  );
+  const activeColumn = useMemo(
+    () => columns.find((column) => column.id === activeColumnId) ?? null,
+    [activeColumnId, columns]
   );
 
   const sensors = useSensors(
@@ -137,6 +162,7 @@ export function TaskFlowApp() {
       setActiveBoard(null);
       setColumns([]);
       setCards([]);
+      setActivity([]);
       return;
     }
 
@@ -186,8 +212,11 @@ export function TaskFlowApp() {
     const client = supabase;
     setLoadingBoard(true);
     await runRequest(async () => {
-      const [{ data: columnRows, error: columnsError }, { data: cardRows, error: cardsError }] =
-        await Promise.all([
+      const [
+        { data: columnRows, error: columnsError },
+        { data: cardRows, error: cardsError },
+        { data: activityRows, error: activityError }
+      ] = await Promise.all([
           client
             .from("columns")
             .select("*")
@@ -197,15 +226,23 @@ export function TaskFlowApp() {
             .from("cards")
             .select("*")
             .eq("board_id", board.id)
-            .order("position", { ascending: true })
+            .order("position", { ascending: true }),
+          client
+            .from("card_activity")
+            .select("*")
+            .eq("board_id", board.id)
+            .order("created_at", { ascending: false })
+            .limit(12)
         ]);
 
       if (columnsError) throw columnsError;
       if (cardsError) throw cardsError;
+      if (activityError) throw activityError;
 
       setActiveBoard(board);
       setColumns((columnRows ?? []) as Column[]);
       setCards((cardRows ?? []) as Card[]);
+      setActivity((activityRows ?? []) as ActivityLog[]);
     }, "Board could not be loaded.").finally(() => setLoadingBoard(false));
   }
 
@@ -318,6 +355,7 @@ export function TaskFlowApp() {
           description: "Set Auth URL settings and run the schema.sql file.",
           label: "Setup",
           due_date: getFutureDate(1),
+          responsible: "Me",
           position: POSITION_STEP
         },
         todo && {
@@ -327,6 +365,7 @@ export function TaskFlowApp() {
           description: "Move a card into any empty column and refresh.",
           label: "QA",
           due_date: getFutureDate(2),
+          responsible: "Reviewer",
           position: POSITION_STEP * 2
         },
         progress && {
@@ -336,6 +375,7 @@ export function TaskFlowApp() {
           description: "Use horizontal scroll and touch drag activation.",
           label: "UI",
           due_date: getFutureDate(3),
+          responsible: "Me",
           position: POSITION_STEP
         },
         done && {
@@ -345,6 +385,7 @@ export function TaskFlowApp() {
           description: "Modern, maintained, pointer/touch friendly drag-and-drop.",
           label: "Decision",
           due_date: null,
+          responsible: "",
           position: POSITION_STEP
         }
       ].filter(Boolean);
@@ -414,6 +455,7 @@ export function TaskFlowApp() {
           description: "",
           label: "",
           due_date: null,
+          responsible: "",
           position: nextPosition
         })
         .select()
@@ -432,6 +474,7 @@ export function TaskFlowApp() {
     setEditDescription(card.description ?? "");
     setEditLabel(card.label ?? "");
     setEditDueDate(card.due_date ?? "");
+    setEditResponsible(card.responsible ?? "");
     setEditDueDateError("");
   }
 
@@ -455,7 +498,8 @@ export function TaskFlowApp() {
           title: editTitle.trim(),
           description: editDescription.trim(),
           label: editLabel.trim(),
-          due_date: dueDate || null
+          due_date: dueDate || null,
+          responsible: editResponsible.trim()
         })
         .eq("id", editingCard.id)
         .eq("board_id", editingCard.board_id)
@@ -473,24 +517,44 @@ export function TaskFlowApp() {
   }
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveCardId(String(event.active.id));
+    const activeId = String(event.active.id);
+    if (activeId.startsWith(COLUMN_DRAG_PREFIX)) {
+      setActiveColumnId(activeId.replace(COLUMN_DRAG_PREFIX, ""));
+      setActiveCardId(null);
+      return;
+    }
+
+    setActiveCardId(activeId);
+    setActiveColumnId(null);
   }
 
   async function handleDragEnd(event: DragEndEvent) {
     setActiveCardId(null);
+    setActiveColumnId(null);
 
     if (!activeBoard || !event.over) return;
+
+    const activeId = String(event.active.id);
+    const overId = String(event.over.id);
+
+    if (activeId.startsWith(COLUMN_DRAG_PREFIX)) {
+      if (!overId.startsWith(COLUMN_DRAG_PREFIX)) return;
+      await reorderColumn(
+        activeId.replace(COLUMN_DRAG_PREFIX, ""),
+        overId.replace(COLUMN_DRAG_PREFIX, "")
+      );
+      return;
+    }
 
     const cardId = String(event.active.id);
     const movingCard = cards.find((card) => card.id === cardId);
     if (!movingCard || movingCard.board_id !== activeBoard.id) return;
 
-    const overId = String(event.over.id);
     if (overId === cardId) return;
 
     const overCard = cards.find((card) => card.id === overId);
-    const targetColumnId = overId.startsWith("column:")
-      ? overId.replace("column:", "")
+    const targetColumnId = overId.startsWith(COLUMN_DRAG_PREFIX)
+      ? overId.replace(COLUMN_DRAG_PREFIX, "")
       : overCard?.column_id;
     const targetColumn = columns.find((column) => column.id === targetColumnId);
 
@@ -520,6 +584,7 @@ export function TaskFlowApp() {
 
     try {
       await persistMove(move);
+      await recordCardMove(movingCard, movingCard.column_id, move.columnId);
     } catch (moveError) {
       setCards(previousCards);
       setError(
@@ -530,6 +595,70 @@ export function TaskFlowApp() {
       if (activeBoard) {
         await loadBoard(activeBoard);
       }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reorderColumn(columnId: string, overColumnId: string) {
+    if (!supabase || !activeBoard || columnId === overColumnId) return;
+
+    const client = supabase;
+    const movingColumn = columns.find((column) => column.id === columnId);
+    const overColumn = columns.find((column) => column.id === overColumnId);
+    if (
+      !movingColumn ||
+      !overColumn ||
+      movingColumn.board_id !== activeBoard.id ||
+      overColumn.board_id !== activeBoard.id
+    ) {
+      setError("Columns can only be reordered within the current board.");
+      return;
+    }
+
+    const previousColumns = columns;
+    const orderedColumns = sortByPosition(columns);
+    const movingIndex = orderedColumns.findIndex((column) => column.id === columnId);
+    const overIndex = orderedColumns.findIndex((column) => column.id === overColumnId);
+
+    if (movingIndex < 0 || overIndex < 0 || movingIndex === overIndex) return;
+
+    const nextColumns = [...orderedColumns];
+    const [moving] = nextColumns.splice(movingIndex, 1);
+    nextColumns.splice(overIndex, 0, moving);
+
+    const updatedColumns = nextColumns.map((column, index) => ({
+      ...column,
+      position: (index + 1) * POSITION_STEP
+    }));
+    const updatesById = new Map(updatedColumns.map((column) => [column.id, column]));
+
+    setColumns((current) =>
+      current.map((column) => updatesById.get(column.id) ?? column)
+    );
+    setSaving(true);
+    setError("");
+
+    try {
+      const results = await Promise.all(
+        updatedColumns.map((column) =>
+          client
+            .from("columns")
+            .update({ position: column.position })
+            .eq("id", column.id)
+            .eq("board_id", activeBoard.id)
+        )
+      );
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+    } catch (columnError) {
+      setColumns(previousColumns);
+      setError(
+        columnError instanceof Error
+          ? `Column order was not saved: ${columnError.message}`
+          : "Column order was not saved."
+      );
+      await loadBoard(activeBoard);
     } finally {
       setSaving(false);
     }
@@ -668,6 +797,39 @@ export function TaskFlowApp() {
     if (updateError) throw updateError;
   }
 
+  async function recordCardMove(
+    card: Card,
+    fromColumnId: string,
+    toColumnId: string
+  ) {
+    if (!supabase || !activeBoard || fromColumnId === toColumnId) return;
+
+    const fromColumn = columns.find((column) => column.id === fromColumnId);
+    const toColumn = columns.find((column) => column.id === toColumnId);
+    if (!toColumn || toColumn.board_id !== activeBoard.id) return;
+
+    const { data, error: activityError } = await supabase
+      .from("card_activity")
+      .insert({
+        board_id: activeBoard.id,
+        card_id: card.id,
+        card_title: card.title,
+        from_column_id: fromColumn?.id ?? null,
+        from_column_title: fromColumn?.title ?? null,
+        to_column_id: toColumn.id,
+        to_column_title: toColumn.title
+      })
+      .select()
+      .single();
+
+    if (activityError) {
+      setNotice("Move saved, but activity history could not be updated.");
+      return;
+    }
+
+    setActivity((current) => [data as ActivityLog, ...current].slice(0, 12));
+  }
+
   async function moveCardWithSelect(card: Card, columnId: string) {
     const targetColumn = columns.find((column) => column.id === columnId);
     if (!targetColumn || targetColumn.id === card.column_id) return;
@@ -689,6 +851,7 @@ export function TaskFlowApp() {
     setSaving(true);
     try {
       await persistMove(move);
+      await recordCardMove(card, card.column_id, move.columnId);
     } catch (moveError) {
       setCards(previousCards);
       setError(
@@ -927,31 +1090,43 @@ export function TaskFlowApp() {
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
               >
-                <div className="kanban-scroll" aria-label="Kanban columns">
-                  {sortedColumns.map((column) => (
-                    <KanbanColumn
-                      key={column.id}
-                      column={column}
-                      cards={getColumnCards(cards, column.id)}
-                      columns={sortedColumns}
-                      newCardTitle={newCardTitles[column.id] ?? ""}
-                      onNewCardTitleChange={(value) =>
-                        setNewCardTitles((current) => ({
-                          ...current,
-                          [column.id]: value
-                        }))
-                      }
-                      onCreateCard={(event) => createCard(column, event)}
-                      onEditCard={openEditCard}
-                      onMoveCard={moveCardWithSelect}
-                    />
-                  ))}
-                </div>
+                <SortableContext
+                  items={sortedColumns.map((column) => columnDragId(column.id))}
+                  strategy={horizontalListSortingStrategy}
+                >
+                  <div className="kanban-scroll" aria-label="Kanban columns">
+                    {sortedColumns.map((column) => (
+                      <KanbanColumn
+                        key={column.id}
+                        column={column}
+                        cards={cardsByColumn.get(column.id) ?? []}
+                        columns={sortedColumns}
+                        newCardTitle={newCardTitles[column.id] ?? ""}
+                        onNewCardTitleChange={(value) =>
+                          setNewCardTitles((current) => ({
+                            ...current,
+                            [column.id]: value
+                          }))
+                        }
+                        onCreateCard={(event) => createCard(column, event)}
+                        onEditCard={openEditCard}
+                        onMoveCard={moveCardWithSelect}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
                 <DragOverlay>
                   {activeCard ? <CardPreview card={activeCard} isOverlay /> : null}
+                  {activeColumn ? (
+                    <ColumnPreview
+                      column={activeColumn}
+                      cards={cardsByColumn.get(activeColumn.id) ?? []}
+                    />
+                  ) : null}
                 </DragOverlay>
               </DndContext>
             )}
+            <ActivityPanel activity={activity} />
           </>
         )}
       </section>
@@ -984,6 +1159,15 @@ export function TaskFlowApp() {
                   onChange={(event) => setEditLabel(event.target.value)}
                   maxLength={24}
                   placeholder="Frontend"
+                />
+              </label>
+              <label>
+                Responsible
+                <input
+                  value={editResponsible}
+                  onChange={(event) => setEditResponsible(event.target.value)}
+                  maxLength={32}
+                  placeholder="Me"
                 />
               </label>
               <label>
@@ -1046,17 +1230,45 @@ function KanbanColumn({
   onEditCard: (card: Card) => void;
   onMoveCard: (card: Card, columnId: string) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `column:${column.id}`,
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+    isOver
+  } = useSortable({
+    id: columnDragId(column.id),
     data: {
       type: "column",
       column
     }
   });
 
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition
+  };
+
   return (
-    <section className={`kanban-column ${isOver ? "is-over" : ""}`} ref={setNodeRef}>
+    <section
+      className={`kanban-column ${isOver ? "is-over" : ""} ${
+        isDragging ? "is-dragging" : ""
+      }`}
+      ref={setNodeRef}
+      style={style}
+    >
       <header className="column-header">
+        <button
+          className="column-drag-button"
+          type="button"
+          aria-label={`Drag ${column.title} column`}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical size={16} aria-hidden="true" />
+        </button>
         <h2>{column.title}</h2>
         <span>{cards.length}</span>
       </header>
@@ -1142,9 +1354,12 @@ function SortableCard({
         {...listeners}
       >
         <strong>{card.title}</strong>
-        {card.label || card.due_date ? (
+        {card.label || card.responsible || card.due_date ? (
           <div className="card-meta">
             {card.label ? <span className="label-pill">{card.label}</span> : null}
+            {card.responsible ? (
+              <span className="responsible-pill">{card.responsible}</span>
+            ) : null}
             {card.due_date ? (
               <span className="due-pill">Due {formatDueDate(card.due_date)}</span>
             ) : null}
@@ -1168,13 +1383,42 @@ function SortableCard({
   );
 }
 
+function ActivityPanel({ activity }: { activity: ActivityLog[] }) {
+  return (
+    <section className="activity-panel" aria-label="Recent activity">
+      <div className="activity-heading">
+        <Clock3 size={16} aria-hidden="true" />
+        <h2>Recent moves</h2>
+      </div>
+      {activity.length === 0 ? (
+        <p className="empty-copy">Move cards between columns to build activity history.</p>
+      ) : (
+        <ol className="activity-list">
+          {activity.map((entry) => (
+            <li key={entry.id}>
+              <strong>{entry.card_title}</strong>
+              <span>
+                {entry.from_column_title ?? "No column"} to {entry.to_column_title}
+              </span>
+              <time dateTime={entry.created_at}>{formatActivityTime(entry.created_at)}</time>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function CardPreview({ card, isOverlay = false }: { card: Card; isOverlay?: boolean }) {
   return (
     <article className={`task-card preview ${isOverlay ? "overlay" : ""}`}>
       <strong>{card.title}</strong>
-      {card.label || card.due_date ? (
+      {card.label || card.responsible || card.due_date ? (
         <div className="card-meta">
           {card.label ? <span className="label-pill">{card.label}</span> : null}
+          {card.responsible ? (
+            <span className="responsible-pill">{card.responsible}</span>
+          ) : null}
           {card.due_date ? <span className="due-pill">Due {formatDueDate(card.due_date)}</span> : null}
         </div>
       ) : null}
@@ -1183,11 +1427,40 @@ function CardPreview({ card, isOverlay = false }: { card: Card; isOverlay?: bool
   );
 }
 
+function ColumnPreview({ column, cards }: { column: Column; cards: Card[] }) {
+  return (
+    <section className="kanban-column column-preview">
+      <header className="column-header">
+        <h2>{column.title}</h2>
+        <span>{cards.length}</span>
+      </header>
+      <div className="card-list">
+        {cards.slice(0, 2).map((card) => (
+          <CardPreview key={card.id} card={card} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function columnDragId(columnId: string) {
+  return `${COLUMN_DRAG_PREFIX}${columnId}`;
+}
+
 function formatDueDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   if (!year || !month || !day) return value;
 
   return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
+}
+
+function formatActivityTime(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function validateDueDate(value: string) {
