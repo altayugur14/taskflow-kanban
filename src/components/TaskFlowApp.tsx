@@ -79,6 +79,9 @@ export function TaskFlowApp() {
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editLabel, setEditLabel] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editDueDateError, setEditDueDateError] = useState("");
 
   const sortedBoards = useMemo(
     () => [...boards].sort((a, b) => a.created_at.localeCompare(b.created_at)),
@@ -313,6 +316,8 @@ export function TaskFlowApp() {
           column_id: todo.id,
           title: "Create Supabase project",
           description: "Set Auth URL settings and run the schema.sql file.",
+          label: "Setup",
+          due_date: getFutureDate(1),
           position: POSITION_STEP
         },
         todo && {
@@ -320,6 +325,8 @@ export function TaskFlowApp() {
           column_id: todo.id,
           title: "Test empty-column drop",
           description: "Move a card into any empty column and refresh.",
+          label: "QA",
+          due_date: getFutureDate(2),
           position: POSITION_STEP * 2
         },
         progress && {
@@ -327,6 +334,8 @@ export function TaskFlowApp() {
           column_id: progress.id,
           title: "Polish mobile board layout",
           description: "Use horizontal scroll and touch drag activation.",
+          label: "UI",
+          due_date: getFutureDate(3),
           position: POSITION_STEP
         },
         done && {
@@ -334,6 +343,8 @@ export function TaskFlowApp() {
           column_id: done.id,
           title: "Choose dnd-kit",
           description: "Modern, maintained, pointer/touch friendly drag-and-drop.",
+          label: "Decision",
+          due_date: null,
           position: POSITION_STEP
         }
       ].filter(Boolean);
@@ -401,6 +412,8 @@ export function TaskFlowApp() {
           column_id: column.id,
           title,
           description: "",
+          label: "",
+          due_date: null,
           position: nextPosition
         })
         .select()
@@ -417,11 +430,21 @@ export function TaskFlowApp() {
     setEditingCard(card);
     setEditTitle(card.title);
     setEditDescription(card.description ?? "");
+    setEditLabel(card.label ?? "");
+    setEditDueDate(card.due_date ?? "");
+    setEditDueDateError("");
   }
 
   async function saveCardEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || !editingCard || !editTitle.trim()) return;
+
+    const dueDate = editDueDate.trim();
+    const dueDateError = validateDueDate(dueDate);
+    if (dueDateError) {
+      setEditDueDateError(dueDateError);
+      return;
+    }
 
     const client = supabase;
     setSaving(true);
@@ -430,7 +453,9 @@ export function TaskFlowApp() {
         .from("cards")
         .update({
           title: editTitle.trim(),
-          description: editDescription.trim()
+          description: editDescription.trim(),
+          label: editLabel.trim(),
+          due_date: dueDate || null
         })
         .eq("id", editingCard.id)
         .eq("board_id", editingCard.board_id)
@@ -475,7 +500,16 @@ export function TaskFlowApp() {
     }
 
     const previousCards = cards;
-    const move = buildMove(movingCard, targetColumn, overCard);
+    const shouldInsertAfterOverCard =
+      Boolean(overCard) &&
+      movingCard.column_id === targetColumn.id &&
+      movingCard.position < overCard!.position;
+    const move = buildMove(
+      movingCard,
+      targetColumn,
+      overCard,
+      shouldInsertAfterOverCard
+    );
 
     if (!move) return;
 
@@ -501,7 +535,12 @@ export function TaskFlowApp() {
     }
   }
 
-  function buildMove(movingCard: Card, targetColumn: Column, overCard?: Card) {
+  function buildMove(
+    movingCard: Card,
+    targetColumn: Column,
+    overCard?: Card,
+    insertAfterOverCard = false
+  ) {
     if (overCard && overCard.board_id !== targetColumn.board_id) {
       return null;
     }
@@ -515,7 +554,9 @@ export function TaskFlowApp() {
           targetCards.findIndex((card) => card.id === overCard.id)
         )
       : targetCards.length;
-    const insertIndex = overCard ? overIndex : targetCards.length;
+    const insertIndex = overCard
+      ? overIndex + (insertAfterOverCard ? 1 : 0)
+      : targetCards.length;
     const nextTargetCards = [...targetCards];
     nextTargetCards.splice(insertIndex, 0, {
       ...movingCard,
@@ -787,7 +828,6 @@ export function TaskFlowApp() {
         <section className="board-list-panel">
           <div className="panel-label">Your boards</div>
           <nav className="board-list" aria-label="Boards">
-            {loadingBoards ? <p className="muted small">Loading boards...</p> : null}
             {!loadingBoards && sortedBoards.length === 0 ? (
               <p className="empty-copy">
                 No boards yet. Create one or start with the sample board.
@@ -936,6 +976,38 @@ export function TaskFlowApp() {
                 rows={6}
               />
             </label>
+            <div className="modal-grid">
+              <label>
+                Label
+                <input
+                  value={editLabel}
+                  onChange={(event) => setEditLabel(event.target.value)}
+                  maxLength={24}
+                  placeholder="Frontend"
+                />
+              </label>
+              <label>
+                Due date
+                <input
+                  type="date"
+                  value={editDueDate}
+                  onChange={(event) => {
+                    setEditDueDate(event.target.value);
+                    setEditDueDateError("");
+                  }}
+                  min={getFutureDate(0)}
+                  max={getFutureDate(730)}
+                  lang="en-GB"
+                  aria-describedby="due-date-help"
+                />
+                <span className="field-hint" id="due-date-help">
+                  Optional. Use the date picker; cards show DD.MM.YYYY.
+                </span>
+                {editDueDateError ? (
+                  <span className="field-error">{editDueDateError}</span>
+                ) : null}
+              </label>
+            </div>
             <div className="modal-actions">
               <button
                 className="ghost-button"
@@ -1062,24 +1134,22 @@ function SortableCard({
       style={style}
     >
       <button
-        className="drag-handle"
-        type="button"
-        aria-label={`Drag ${card.title}`}
-        {...attributes}
-        {...listeners}
-      >
-        <span />
-        <span />
-        <span />
-      </button>
-      <button
         className="card-body"
         type="button"
+        aria-label={`Open or drag ${card.title}`}
         onClick={() => onEditCard(card)}
         {...attributes}
         {...listeners}
       >
         <strong>{card.title}</strong>
+        {card.label || card.due_date ? (
+          <div className="card-meta">
+            {card.label ? <span className="label-pill">{card.label}</span> : null}
+            {card.due_date ? (
+              <span className="due-pill">Due {formatDueDate(card.due_date)}</span>
+            ) : null}
+          </div>
+        ) : null}
         {card.description ? <p>{card.description}</p> : null}
       </button>
       <select
@@ -1102,7 +1172,68 @@ function CardPreview({ card, isOverlay = false }: { card: Card; isOverlay?: bool
   return (
     <article className={`task-card preview ${isOverlay ? "overlay" : ""}`}>
       <strong>{card.title}</strong>
+      {card.label || card.due_date ? (
+        <div className="card-meta">
+          {card.label ? <span className="label-pill">{card.label}</span> : null}
+          {card.due_date ? <span className="due-pill">Due {formatDueDate(card.due_date)}</span> : null}
+        </div>
+      ) : null}
       {card.description ? <p>{card.description}</p> : null}
     </article>
   );
+}
+
+function formatDueDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+
+  return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
+}
+
+function validateDueDate(value: string) {
+  if (!value) return "";
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return "Use YYYY-MM-DD format.";
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const dueDate = new Date(year, month - 1, day);
+  const isRealDate =
+    dueDate.getFullYear() === year &&
+    dueDate.getMonth() === month - 1 &&
+    dueDate.getDate() === day;
+
+  if (!isRealDate) {
+    return "Use a real calendar date.";
+  }
+
+  const today = startOfToday();
+  if (dueDate < today) {
+    return "Due date cannot be in the past.";
+  }
+
+  const maxDate = new Date(today);
+  maxDate.setFullYear(maxDate.getFullYear() + 2);
+  if (dueDate > maxDate) {
+    return "Due date must be within the next 2 years.";
+  }
+
+  return "";
+}
+
+function startOfToday() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+function getFutureDate(daysFromNow: number) {
+  const date = startOfToday();
+  date.setDate(date.getDate() + daysFromNow);
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
