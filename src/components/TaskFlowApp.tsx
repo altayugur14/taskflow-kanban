@@ -32,7 +32,8 @@ import {
   LogOut,
   Plus,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  Trash2
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
@@ -48,6 +49,12 @@ import type { ActivityLog, Board, Card, Column } from "@/lib/types";
 type AuthMode = "signin" | "signup";
 
 const COLUMN_DRAG_PREFIX = "column:";
+const ACTIVE_BOARD_STORAGE_KEY = "taskflow-active-board-id";
+
+type PendingDelete =
+  | { kind: "board"; board: Board }
+  | { kind: "column"; column: Column }
+  | { kind: "card"; card: Card };
 
 type PersistedMove = {
   cardId: string;
@@ -89,6 +96,7 @@ export function TaskFlowApp() {
   const [editDueDate, setEditDueDate] = useState("");
   const [editResponsible, setEditResponsible] = useState("");
   const [editDueDateError, setEditDueDateError] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
 
   const sortedBoards = useMemo(
     () => [...boards].sort((a, b) => a.created_at.localeCompare(b.created_at)),
@@ -157,12 +165,15 @@ export function TaskFlowApp() {
   }, []);
 
   useEffect(() => {
+    if (authLoading) return;
+
     if (!session) {
       setBoards([]);
       setActiveBoard(null);
       setColumns([]);
       setCards([]);
       setActivity([]);
+      rememberActiveBoard(null);
       return;
     }
 
@@ -170,7 +181,7 @@ export function TaskFlowApp() {
     // Board loading should run when the authenticated user changes; later board
     // refreshes are explicit actions that should not retrigger this session effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [session, authLoading]);
 
   async function runRequest<T>(request: () => Promise<T>, fallbackMessage: string) {
     setError("");
@@ -201,7 +212,10 @@ export function TaskFlowApp() {
       setBoards(nextBoards);
 
       if (selectFirst && !activeBoard && nextBoards.length > 0) {
-        await loadBoard(nextBoards[0]);
+        const requestedBoardId = getRequestedBoardId();
+        const nextBoard =
+          nextBoards.find((board) => board.id === requestedBoardId) ?? nextBoards[0];
+        await loadBoard(nextBoard);
       }
     }, "Boards could not be loaded.").finally(() => setLoadingBoards(false));
   }
@@ -243,6 +257,7 @@ export function TaskFlowApp() {
       setColumns((columnRows ?? []) as Column[]);
       setCards((cardRows ?? []) as Card[]);
       setActivity((activityRows ?? []) as ActivityLog[]);
+      rememberActiveBoard(board.id);
     }, "Board could not be loaded.").finally(() => setLoadingBoard(false));
   }
 
@@ -401,6 +416,39 @@ export function TaskFlowApp() {
     }, "Sample board could not be created.").finally(() => setSaving(false));
   }
 
+  async function deleteBoard(board: Board) {
+    if (!supabase) return;
+
+    const client = supabase;
+    setSaving(true);
+    await runRequest(async () => {
+      const { error: deleteError } = await client
+        .from("boards")
+        .delete()
+        .eq("id", board.id);
+
+      if (deleteError) throw deleteError;
+
+      const remainingBoards = boards.filter((candidate) => candidate.id !== board.id);
+      setBoards(remainingBoards);
+
+      if (activeBoard?.id === board.id) {
+        const nextBoard = remainingBoards[0];
+        if (nextBoard) {
+          await loadBoard(nextBoard);
+        } else {
+          setActiveBoard(null);
+          setColumns([]);
+          setCards([]);
+          setActivity([]);
+          rememberActiveBoard(null);
+        }
+      }
+
+      setNotice("Board deleted.");
+    }, "Board could not be deleted.").finally(() => setSaving(false));
+  }
+
   async function createColumn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || !activeBoard || !newColumnTitle.trim()) return;
@@ -428,6 +476,27 @@ export function TaskFlowApp() {
       setColumns((current) => [...current, data as Column]);
       setNewColumnTitle("");
     }, "Column could not be created.").finally(() => setSaving(false));
+  }
+
+  async function deleteColumn(column: Column) {
+    if (!supabase || !activeBoard) return;
+
+    const client = supabase;
+    setSaving(true);
+    await runRequest(async () => {
+      const { error: deleteError } = await client
+        .from("columns")
+        .delete()
+        .eq("id", column.id)
+        .eq("board_id", activeBoard.id);
+
+      if (deleteError) throw deleteError;
+
+      setColumns((current) => current.filter((candidate) => candidate.id !== column.id));
+      setCards((current) => current.filter((card) => card.column_id !== column.id));
+      setNotice("Column deleted.");
+      await loadBoard(activeBoard);
+    }, "Column could not be deleted.").finally(() => setSaving(false));
   }
 
   async function createCard(column: Column, event: FormEvent<HTMLFormElement>) {
@@ -514,6 +583,45 @@ export function TaskFlowApp() {
       );
       setEditingCard(null);
     }, "Card could not be updated.").finally(() => setSaving(false));
+  }
+
+  async function deleteCard(cardToDelete: Card) {
+    if (!supabase) return;
+
+    const client = supabase;
+    setSaving(true);
+    await runRequest(async () => {
+      const { error: deleteError } = await client
+        .from("cards")
+        .delete()
+        .eq("id", cardToDelete.id)
+        .eq("board_id", cardToDelete.board_id);
+
+      if (deleteError) throw deleteError;
+
+      setCards((current) => current.filter((card) => card.id !== cardToDelete.id));
+      setEditingCard(null);
+      setNotice("Card deleted.");
+    }, "Card could not be deleted.").finally(() => setSaving(false));
+  }
+
+  async function confirmPendingDelete() {
+    if (!pendingDelete) return;
+
+    const deleteTarget = pendingDelete;
+    setPendingDelete(null);
+
+    if (deleteTarget.kind === "board") {
+      await deleteBoard(deleteTarget.board);
+      return;
+    }
+
+    if (deleteTarget.kind === "column") {
+      await deleteColumn(deleteTarget.column);
+      return;
+    }
+
+    await deleteCard(deleteTarget.card);
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -997,14 +1105,25 @@ export function TaskFlowApp() {
               </p>
             ) : null}
             {sortedBoards.map((board) => (
-              <button
+              <div
                 key={board.id}
-                type="button"
-                className={activeBoard?.id === board.id ? "selected" : ""}
-                onClick={() => loadBoard(board)}
+                className={`board-list-item ${
+                  activeBoard?.id === board.id ? "selected" : ""
+                }`}
               >
-                {board.title}
-              </button>
+                <button type="button" onClick={() => loadBoard(board)}>
+                  {board.title}
+                </button>
+                <button
+                  className="icon-button danger-icon"
+                  type="button"
+                  onClick={() => setPendingDelete({ kind: "board", board })}
+                  disabled={saving}
+                  aria-label={`Delete ${board.title}`}
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                </button>
+              </div>
             ))}
           </nav>
         </section>
@@ -1111,6 +1230,9 @@ export function TaskFlowApp() {
                         onCreateCard={(event) => createCard(column, event)}
                         onEditCard={openEditCard}
                         onMoveCard={moveCardWithSelect}
+                        onDeleteColumn={(targetColumn) =>
+                          setPendingDelete({ kind: "column", column: targetColumn })
+                        }
                       />
                     ))}
                   </div>
@@ -1194,6 +1316,15 @@ export function TaskFlowApp() {
             </div>
             <div className="modal-actions">
               <button
+                className="danger-button"
+                type="button"
+                onClick={() => setPendingDelete({ kind: "card", card: editingCard })}
+                disabled={saving}
+              >
+                <Trash2 size={16} aria-hidden="true" />
+                Delete card
+              </button>
+              <button
                 className="ghost-button"
                 type="button"
                 onClick={() => setEditingCard(null)}
@@ -1207,8 +1338,108 @@ export function TaskFlowApp() {
           </form>
         </div>
       ) : null}
+
+      {pendingDelete ? (
+        <DeleteConfirmDialog
+          pendingDelete={pendingDelete}
+          saving={saving}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={confirmPendingDelete}
+        />
+      ) : null}
     </main>
   );
+}
+
+function DeleteConfirmDialog({
+  pendingDelete,
+  saving,
+  onCancel,
+  onConfirm
+}: {
+  pendingDelete: PendingDelete;
+  saving: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const content = getDeleteDialogContent(pendingDelete);
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section
+        className="confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-dialog-title"
+      >
+        <div className="confirm-icon">
+          <Trash2 size={20} aria-hidden="true" />
+        </div>
+        <div>
+          <h2 id="delete-dialog-title">{content.title}</h2>
+          <p>{content.message}</p>
+        </div>
+        <div className="confirm-actions">
+          <button className="ghost-button" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            className="danger-button"
+            type="button"
+            onClick={onConfirm}
+            disabled={saving}
+          >
+            {saving ? <Loader2 className="spin" size={16} aria-hidden="true" /> : null}
+            {content.confirmLabel}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function getDeleteDialogContent(pendingDelete: PendingDelete) {
+  if (pendingDelete.kind === "board") {
+    return {
+      title: `Delete "${pendingDelete.board.title}"?`,
+      message: "This removes the board, all of its columns, and all of its cards.",
+      confirmLabel: "Delete board"
+    };
+  }
+
+  if (pendingDelete.kind === "column") {
+    return {
+      title: `Delete "${pendingDelete.column.title}"?`,
+      message:
+        "This removes the column and its cards. Existing move history stays visible.",
+      confirmLabel: "Delete column"
+    };
+  }
+
+  return {
+    title: `Delete "${pendingDelete.card.title}"?`,
+    message: "This removes the card. Existing move history stays visible.",
+    confirmLabel: "Delete card"
+  };
+}
+
+function getRequestedBoardId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("board") ?? localStorage.getItem(ACTIVE_BOARD_STORAGE_KEY);
+}
+
+function rememberActiveBoard(boardId: string | null) {
+  const url = new URL(window.location.href);
+
+  if (boardId) {
+    localStorage.setItem(ACTIVE_BOARD_STORAGE_KEY, boardId);
+    url.searchParams.set("board", boardId);
+  } else {
+    localStorage.removeItem(ACTIVE_BOARD_STORAGE_KEY);
+    url.searchParams.delete("board");
+  }
+
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 function KanbanColumn({
@@ -1219,7 +1450,8 @@ function KanbanColumn({
   onNewCardTitleChange,
   onCreateCard,
   onEditCard,
-  onMoveCard
+  onMoveCard,
+  onDeleteColumn
 }: {
   column: Column;
   cards: Card[];
@@ -1229,6 +1461,7 @@ function KanbanColumn({
   onCreateCard: (event: FormEvent<HTMLFormElement>) => void;
   onEditCard: (card: Card) => void;
   onMoveCard: (card: Card, columnId: string) => void;
+  onDeleteColumn: (column: Column) => void;
 }) {
   const {
     attributes,
@@ -1271,6 +1504,14 @@ function KanbanColumn({
         </button>
         <h2>{column.title}</h2>
         <span>{cards.length}</span>
+        <button
+          className="icon-button danger-icon"
+          type="button"
+          onClick={() => onDeleteColumn(column)}
+          aria-label={`Delete ${column.title} column`}
+        >
+          <Trash2 size={15} aria-hidden="true" />
+        </button>
       </header>
 
       <SortableContext

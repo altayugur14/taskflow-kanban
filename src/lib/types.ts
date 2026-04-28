@@ -32,11 +32,11 @@ export type Card = {
 export type ActivityLog = {
   id: string;
   board_id: string;
-  card_id: string;
+  card_id: string | null;
   card_title: string;
   from_column_id: string | null;
   from_column_title: string | null;
-  to_column_id: string;
+  to_column_id: string | null;
   to_column_title: string;
   created_at: string;
 };
