@@ -50,6 +50,7 @@ type AuthMode = "signin" | "signup";
 
 const COLUMN_DRAG_PREFIX = "column:";
 const ACTIVE_BOARD_STORAGE_KEY = "taskflow-active-board-id";
+const BOARD_LOADING_MESSAGE_DELAY_MS = 1500;
 
 type PendingDelete =
   | { kind: "board"; board: Board }
@@ -81,6 +82,7 @@ export function TaskFlowApp() {
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
 
   const [loadingBoards, setLoadingBoards] = useState(false);
+  const [showBoardLoadingMessage, setShowBoardLoadingMessage] = useState(false);
   const [loadingBoard, setLoadingBoard] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -182,6 +184,22 @@ export function TaskFlowApp() {
     // refreshes are explicit actions that should not retrigger this session effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, authLoading]);
+
+  useEffect(() => {
+    if (!loadingBoards) {
+      setShowBoardLoadingMessage(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowBoardLoadingMessage(true);
+    }, BOARD_LOADING_MESSAGE_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+      setShowBoardLoadingMessage(false);
+    };
+  }, [loadingBoards]);
 
   async function runRequest<T>(request: () => Promise<T>, fallbackMessage: string) {
     setError("");
@@ -1099,7 +1117,7 @@ export function TaskFlowApp() {
         <section className="board-list-panel">
           <div className="panel-label">Your boards</div>
           <nav className="board-list" aria-label="Boards">
-            {loadingBoards ? (
+            {showBoardLoadingMessage ? (
               <p className="board-loading" role="status">
                 <Loader2 className="spin" size={15} aria-hidden="true" />
                 Loading tables, please wait...
