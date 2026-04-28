@@ -1,6 +1,6 @@
 # TaskFlow Kanban
 
-TaskFlow is a focused Kanban project-management app built for the assignment brief. It supports real Supabase accounts, boards, draggable columns, cards, card detail editing, optional card labels/due dates/responsible person, activity history for card moves, persisted drag-and-drop ordering, mobile-friendly usage, and Vercel deployment.
+TaskFlow is a focused Kanban project-management app built for the assignment brief. It supports real Supabase accounts, boards, draggable columns, cards, card detail editing, delete actions, optional card labels/due dates/responsible person, activity history for card moves, persisted drag-and-drop ordering, mobile-friendly usage, and Vercel deployment.
 
 Live demo: https://taskflow-kanban-xi.vercel.app
 
@@ -14,7 +14,8 @@ Live demo: https://taskflow-kanban-xi.vercel.app
 6. Drag columns to reorder them.
 7. Edit a card and optionally add a label, due date, and responsible person.
 8. Move a card across columns and check the recent activity list.
-9. Refresh the page and confirm the order remains the same.
+9. Create a temporary card/column/board and confirm delete actions work.
+10. Refresh the page and confirm the order remains the same.
 
 ## Local Setup
 
@@ -107,17 +108,17 @@ Assignment notlarında özellikle güvenilir drag-and-drop, sıralamanın refres
 - Supabase RLS/security
 - Mobil kullanılabilirlik
 - Vercel deployment hazırlığı
+- Board, sütun ve kart silme aksiyonları
 - Bonus olarak sütun sıralama
 - Bonus olarak kart hareketleri için activity history
 
 Bilinçli olarak ertelediğim özellikler:
 
-- Delete aksiyonları
 - Screenshots/GIFs
 - Board sharing
 - Real-time collaboration
 
-MVP kısmını hallettikten sonra etiket, son teslim tarihi, responsible alanı, sütun sıralama ve activity history gibi düşük/orta riskli özellikleri bonus olarak ekledim. Board sharing ve real-time collaboration ise RLS, izin modeli ve birlikte düzenleme beklentisini ciddi şekilde büyüttüğü için bu aşamada bilerek erteledim.
+MVP kısmını hallettikten sonra etiket, son teslim tarihi, responsible alanı, sütun sıralama, activity history ve delete aksiyonları gibi düşük/orta riskli özellikleri bonus olarak ekledim. Board sharing ve real-time collaboration ise RLS, izin modeli ve birlikte düzenleme beklentisini ciddi şekilde büyüttüğü için bu aşamada bilerek erteledim.
 
 ## Performans Notu
 
@@ -131,6 +132,7 @@ Bu proje, reviewer aşağıdaki akışı deployed Vercel linki üzerinden tamaml
 - Email confirmation beklemeden register veya login olmak.
 - Sample board oluşturmak veya mevcut bir board açmak.
 - Board, sütun ve kart oluşturmak.
+- Board, sütun ve kart silmek.
 - Kart başlığını, açıklamasını, etiketini, son teslim tarihini ve sorumlu kişisini düzenlemek.
 - Kartları aynı sütun içinde taşımak.
 - Kartları farklı sütunlar arasında taşımak.
