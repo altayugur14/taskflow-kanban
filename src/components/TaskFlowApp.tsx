@@ -49,6 +49,7 @@ import type { ActivityLog, Board, Card, Column } from "@/lib/types";
 type AuthMode = "signin" | "signup";
 
 const COLUMN_DRAG_PREFIX = "column:";
+const ACTIVE_BOARD_STORAGE_KEY = "taskflow-active-board-id";
 
 type PendingDelete =
   | { kind: "board"; board: Board }
@@ -164,12 +165,15 @@ export function TaskFlowApp() {
   }, []);
 
   useEffect(() => {
+    if (authLoading) return;
+
     if (!session) {
       setBoards([]);
       setActiveBoard(null);
       setColumns([]);
       setCards([]);
       setActivity([]);
+      rememberActiveBoard(null);
       return;
     }
 
@@ -177,7 +181,7 @@ export function TaskFlowApp() {
     // Board loading should run when the authenticated user changes; later board
     // refreshes are explicit actions that should not retrigger this session effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [session, authLoading]);
 
   async function runRequest<T>(request: () => Promise<T>, fallbackMessage: string) {
     setError("");
@@ -208,7 +212,10 @@ export function TaskFlowApp() {
       setBoards(nextBoards);
 
       if (selectFirst && !activeBoard && nextBoards.length > 0) {
-        await loadBoard(nextBoards[0]);
+        const requestedBoardId = getRequestedBoardId();
+        const nextBoard =
+          nextBoards.find((board) => board.id === requestedBoardId) ?? nextBoards[0];
+        await loadBoard(nextBoard);
       }
     }, "Boards could not be loaded.").finally(() => setLoadingBoards(false));
   }
@@ -250,6 +257,7 @@ export function TaskFlowApp() {
       setColumns((columnRows ?? []) as Column[]);
       setCards((cardRows ?? []) as Card[]);
       setActivity((activityRows ?? []) as ActivityLog[]);
+      rememberActiveBoard(board.id);
     }, "Board could not be loaded.").finally(() => setLoadingBoard(false));
   }
 
@@ -433,6 +441,7 @@ export function TaskFlowApp() {
           setColumns([]);
           setCards([]);
           setActivity([]);
+          rememberActiveBoard(null);
         }
       }
 
@@ -1412,6 +1421,25 @@ function getDeleteDialogContent(pendingDelete: PendingDelete) {
     message: "This removes the card. Existing move history stays visible.",
     confirmLabel: "Delete card"
   };
+}
+
+function getRequestedBoardId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("board") ?? localStorage.getItem(ACTIVE_BOARD_STORAGE_KEY);
+}
+
+function rememberActiveBoard(boardId: string | null) {
+  const url = new URL(window.location.href);
+
+  if (boardId) {
+    localStorage.setItem(ACTIVE_BOARD_STORAGE_KEY, boardId);
+    url.searchParams.set("board", boardId);
+  } else {
+    localStorage.removeItem(ACTIVE_BOARD_STORAGE_KEY);
+    url.searchParams.delete("board");
+  }
+
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 function KanbanColumn({

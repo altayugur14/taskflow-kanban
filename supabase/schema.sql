@@ -34,11 +34,11 @@ create table if not exists public.cards (
 create table if not exists public.card_activity (
   id uuid primary key default gen_random_uuid(),
   board_id uuid not null references public.boards(id) on delete cascade,
-  card_id uuid not null references public.cards(id) on delete cascade,
+  card_id uuid references public.cards(id) on delete set null,
   card_title text not null,
   from_column_id uuid references public.columns(id) on delete set null,
   from_column_title text,
-  to_column_id uuid not null references public.columns(id) on delete cascade,
+  to_column_id uuid references public.columns(id) on delete set null,
   to_column_title text not null,
   created_at timestamptz not null default now()
 );
@@ -57,6 +57,64 @@ alter table public.cards
 
 alter table public.cards
   add column if not exists responsible text not null default '';
+
+alter table public.card_activity
+  alter column card_id drop not null;
+
+alter table public.card_activity
+  alter column to_column_id drop not null;
+
+do $$
+declare
+  constraint_name text;
+begin
+  select con.conname
+    into constraint_name
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace nsp on nsp.oid = rel.relnamespace
+  join unnest(con.conkey) with ordinality as key(attnum, ord) on true
+  join pg_attribute attr on attr.attrelid = rel.oid and attr.attnum = key.attnum
+  where nsp.nspname = 'public'
+    and rel.relname = 'card_activity'
+    and con.contype = 'f'
+    and attr.attname = 'card_id'
+  limit 1;
+
+  if constraint_name is not null then
+    execute format('alter table public.card_activity drop constraint %I', constraint_name);
+  end if;
+end $$;
+
+alter table public.card_activity
+  add constraint card_activity_card_id_fkey
+  foreign key (card_id) references public.cards(id) on delete set null;
+
+do $$
+declare
+  constraint_name text;
+begin
+  select con.conname
+    into constraint_name
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace nsp on nsp.oid = rel.relnamespace
+  join unnest(con.conkey) with ordinality as key(attnum, ord) on true
+  join pg_attribute attr on attr.attrelid = rel.oid and attr.attnum = key.attnum
+  where nsp.nspname = 'public'
+    and rel.relname = 'card_activity'
+    and con.contype = 'f'
+    and attr.attname = 'to_column_id'
+  limit 1;
+
+  if constraint_name is not null then
+    execute format('alter table public.card_activity drop constraint %I', constraint_name);
+  end if;
+end $$;
+
+alter table public.card_activity
+  add constraint card_activity_to_column_id_fkey
+  foreign key (to_column_id) references public.columns(id) on delete set null;
 
 create index if not exists boards_owner_id_idx on public.boards(owner_id);
 create index if not exists columns_board_id_position_idx on public.columns(board_id, position);
