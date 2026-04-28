@@ -23,6 +23,8 @@ create table if not exists public.cards (
   column_id uuid not null references public.columns(id) on delete cascade,
   title text not null check (char_length(trim(title)) > 0),
   description text not null default '',
+  label text not null default '',
+  due_date date,
   position double precision not null default 1000,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -33,6 +35,12 @@ alter table public.columns
 
 alter table public.cards
   alter column position type double precision using position::double precision;
+
+alter table public.cards
+  add column if not exists label text not null default '';
+
+alter table public.cards
+  add column if not exists due_date date;
 
 create index if not exists boards_owner_id_idx on public.boards(owner_id);
 create index if not exists columns_board_id_position_idx on public.columns(board_id, position);

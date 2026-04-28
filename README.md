@@ -1,6 +1,6 @@
 # TaskFlow Kanban
 
-TaskFlow is a focused Kanban project-management app built for the assignment brief. It supports real Supabase accounts, boards, columns, cards, card detail editing, persisted drag-and-drop ordering, mobile-friendly usage, and Vercel deployment.
+TaskFlow is a focused Kanban project-management app built for the assignment brief. It supports real Supabase accounts, boards, columns, cards, card detail editing, optional card labels/due dates, persisted drag-and-drop ordering, mobile-friendly usage, and Vercel deployment.
 
 Live demo: https://taskflow-kanban-xi.vercel.app
 
@@ -11,7 +11,8 @@ Live demo: https://taskflow-kanban-xi.vercel.app
 3. Email confirmation is disabled for this demo only so reviewers can enter immediately.
 4. Create a sample board from the sidebar.
 5. Drag cards within one column, across columns, and into an empty column.
-6. Refresh the page and confirm the order remains the same.
+6. Edit a card and optionally add a label and due date.
+7. Refresh the page and confirm the order remains the same.
 
 ## Local Setup
 
@@ -57,6 +58,7 @@ Open the deployed URL and repeat the quick test there.
 - `boards` tablosundaki her board, `owner_id` alanı üzerinden `auth.uid()` ile bir kullanıcıya bağlıdır.
 - `columns` tablosundaki her sütun bir board'a bağlıdır.
 - `cards` tablosundaki her kart hem bir board'a hem de bir sütuna bağlıdır.
+- Kartlarda ek olarak opsiyonel `label` ve `due_date` alanları vardır. Bunları küçük bonus özellikler olarak ekledim.
 - Row Level Security (RLS) politikaları, erişimi frontend filtrelerine bırakmak yerine kullanıcının ilgili board'un sahibi olup olmadığını veritabanı seviyesinde kontrol eder.
 - Veritabanındaki trigger, bir kartın kendi board'u dışındaki bir sütuna eklenmesini veya taşınmasını engeller. Yani `card.column_id` başka bir board'a aitse işlem reddedilir.
 
@@ -94,6 +96,7 @@ Assignment notlarında özellikle güvenilir drag-and-drop, sıralamanın refres
 - Auth
 - Board/column/card CRUD
 - Kart başlığı ve açıklaması düzenleme
+- Kartlara opsiyonel label ve due date ekleme
 - `dnd-kit` ile drag-and-drop
 - Sıralamanın Supabase'de kalıcı tutulması
 - Supabase RLS/security
@@ -104,15 +107,13 @@ Bilinçli olarak ertelediğim özellikler:
 
 - Delete aksiyonları
 - Screenshots/GIFs
-- Labels
-- Due dates
 - Assignees
 - Board sharing
 - Activity history
 - Real-time collaboration
 - Column reordering
 
-MVP kısmını hallettikten sonra ertelenen özellikler eklenecek istendiği takdirde.
+MVP kısmını hallettikten sonra etiket ve son teslim tarihi gibi düşük riskli özellikleri küçük bonuslar olarak ekledim. Paylaşım, aktivite geçmişi ve gerçek assignee modeli gibi özellikleri ise veri modeli ve güvenlik kapsamını büyüttüğü için bu aşamada bilerek erteledim.
 
 ## Definition of Done
 
@@ -122,7 +123,7 @@ Bu proje, reviewer aşağıdaki akışı deployed Vercel linki üzerinden tamaml
 - Email confirmation beklemeden register veya login olmak.
 - Sample board oluşturmak veya mevcut bir board açmak.
 - Board, sütun ve kart oluşturmak.
-- Kart başlığını ve açıklamasını düzenlemek.
+- Kart başlığını, açıklamasını, etiketini ve son teslim tarihini düzenlemek.
 - Kartları aynı sütun içinde taşımak.
 - Kartları farklı sütunlar arasında taşımak.
 - Kartları boş sütuna taşımak.
