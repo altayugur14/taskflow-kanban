@@ -1,0 +1,231 @@
+create extension if not exists pgcrypto;
+
+create table if not exists public.boards (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  title text not null check (char_length(trim(title)) > 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.columns (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid not null references public.boards(id) on delete cascade,
+  title text not null check (char_length(trim(title)) > 0),
+  position double precision not null default 1000,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.cards (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid not null references public.boards(id) on delete cascade,
+  column_id uuid not null references public.columns(id) on delete cascade,
+  title text not null check (char_length(trim(title)) > 0),
+  description text not null default '',
+  position double precision not null default 1000,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.columns
+  alter column position type double precision using position::double precision;
+
+alter table public.cards
+  alter column position type double precision using position::double precision;
+
+create index if not exists boards_owner_id_idx on public.boards(owner_id);
+create index if not exists columns_board_id_position_idx on public.columns(board_id, position);
+create index if not exists cards_board_column_position_idx on public.cards(board_id, column_id, position);
+
+grant usage on schema public to anon, authenticated;
+grant all on public.boards, public.columns, public.cards to authenticated;
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists boards_set_updated_at on public.boards;
+create trigger boards_set_updated_at
+before update on public.boards
+for each row execute function public.set_updated_at();
+
+drop trigger if exists columns_set_updated_at on public.columns;
+create trigger columns_set_updated_at
+before update on public.columns
+for each row execute function public.set_updated_at();
+
+drop trigger if exists cards_set_updated_at on public.cards;
+create trigger cards_set_updated_at
+before update on public.cards
+for each row execute function public.set_updated_at();
+
+create or replace function public.ensure_card_column_matches_board()
+returns trigger
+language plpgsql
+as $$
+begin
+  if not exists (
+    select 1
+    from public.columns c
+    where c.id = new.column_id
+      and c.board_id = new.board_id
+  ) then
+    raise exception 'Card column must belong to the same board as the card.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists cards_column_board_guard on public.cards;
+create trigger cards_column_board_guard
+before insert or update of board_id, column_id on public.cards
+for each row execute function public.ensure_card_column_matches_board();
+
+alter table public.boards enable row level security;
+alter table public.columns enable row level security;
+alter table public.cards enable row level security;
+
+drop policy if exists "Users can read their own boards" on public.boards;
+create policy "Users can read their own boards"
+on public.boards for select
+using (owner_id = auth.uid());
+
+drop policy if exists "Users can create their own boards" on public.boards;
+create policy "Users can create their own boards"
+on public.boards for insert
+with check (owner_id = auth.uid());
+
+drop policy if exists "Users can update their own boards" on public.boards;
+create policy "Users can update their own boards"
+on public.boards for update
+using (owner_id = auth.uid())
+with check (owner_id = auth.uid());
+
+drop policy if exists "Users can delete their own boards" on public.boards;
+create policy "Users can delete their own boards"
+on public.boards for delete
+using (owner_id = auth.uid());
+
+drop policy if exists "Users can read columns on owned boards" on public.columns;
+create policy "Users can read columns on owned boards"
+on public.columns for select
+using (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = columns.board_id
+      and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can create columns on owned boards" on public.columns;
+create policy "Users can create columns on owned boards"
+on public.columns for insert
+with check (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = columns.board_id
+      and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can update columns on owned boards" on public.columns;
+create policy "Users can update columns on owned boards"
+on public.columns for update
+using (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = columns.board_id
+      and b.owner_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = columns.board_id
+      and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can delete columns on owned boards" on public.columns;
+create policy "Users can delete columns on owned boards"
+on public.columns for delete
+using (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = columns.board_id
+      and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can read cards on owned boards" on public.cards;
+create policy "Users can read cards on owned boards"
+on public.cards for select
+using (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = cards.board_id
+      and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can create cards on owned boards" on public.cards;
+create policy "Users can create cards on owned boards"
+on public.cards for insert
+with check (
+  exists (
+    select 1
+    from public.boards b
+    join public.columns c on c.board_id = b.id
+    where b.id = cards.board_id
+      and c.id = cards.column_id
+      and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can update cards on owned boards" on public.cards;
+create policy "Users can update cards on owned boards"
+on public.cards for update
+using (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = cards.board_id
+      and b.owner_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.boards b
+    join public.columns c on c.board_id = b.id
+    where b.id = cards.board_id
+      and c.id = cards.column_id
+      and b.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can delete cards on owned boards" on public.cards;
+create policy "Users can delete cards on owned boards"
+on public.cards for delete
+using (
+  exists (
+    select 1
+    from public.boards b
+    where b.id = cards.board_id
+      and b.owner_id = auth.uid()
+  )
+);
