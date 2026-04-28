@@ -1099,6 +1099,12 @@ export function TaskFlowApp() {
         <section className="board-list-panel">
           <div className="panel-label">Your boards</div>
           <nav className="board-list" aria-label="Boards">
+            {loadingBoards ? (
+              <p className="board-loading" role="status">
+                <Loader2 className="spin" size={15} aria-hidden="true" />
+                Loading tables, please wait...
+              </p>
+            ) : null}
             {!loadingBoards && sortedBoards.length === 0 ? (
               <p className="empty-copy">
                 No boards yet. Create one or start with the sample board.

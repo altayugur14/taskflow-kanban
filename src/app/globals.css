@@ -313,6 +313,15 @@ code {
   overflow: auto;
 }
 
+.board-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .board-list-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;
